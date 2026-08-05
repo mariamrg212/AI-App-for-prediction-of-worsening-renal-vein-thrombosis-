@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 import joblib
 
-st.set_page_config(page_title="Prediction of worsening kidney function in renal vein thrombosis ", layout="centered")
+st.set_page_config(page_title="Prediction of worsening kidney function in renal vein thrombosis", layout="centered")
 
 # --- Data Loading and Cleanup ---
 try:
-    # 1. تحميل ملف البيانات الفعلي (يرجى التأكد من أن هذا هو اسم ملفك الصحيح)
+    # 1. تحميل ملف البيانات الفعلي
     data_df = pd.read_csv('RVT total cases final.csv')
     st.sidebar.success("تم تحميل البيانات الأصلية بنجاح.")
 
@@ -31,18 +31,15 @@ try:
     }
     data_df = data_df.rename(columns=RENAME_MAP)
     
-    # تحويل الأعمدة الرقمية وملء القيم المفقودة
+    # تحويل جميع الأعمدة إلى أرقام قسراً لتحاشي أخطاء الـ string
     for col in data_df.columns:
-        if data_df[col].dtype == 'object':
-            try:
-                data_df[col] = pd.to_numeric(data_df[col], errors='coerce')
-            except:
-                pass
+        data_df[col] = pd.to_numeric(data_df[col], errors='coerce')
     
+    # ملء القيم المفقودة بالوسيط لكل عمود
     data_df = data_df.fillna(data_df.median(numeric_only=True))
 
 except FileNotFoundError:
-    st.error("خطأ: لم يتم العثور على ملف البيانات 'RVT total cases final.csv.csv'.")
+    st.error("خطأ: لم يتم العثور على ملف البيانات 'RVT total cases final.csv'.")
     st.stop()
 except KeyError as e:
     st.error(f"خطأ: العمود المطلوب {e} غير موجود في ملف البيانات.")
@@ -55,7 +52,6 @@ MODEL_FILE = 'Naive Bayes Model.pkl'
 
 try:
     model = joblib.load(MODEL_FILE)
-    # st.sidebar.success(f"تم تحميل النموذج '{MODEL_FILE}' بنجاح.")
 except FileNotFoundError:
     st.error(f"خطأ: لم يتم العثور على ملف النموذج '{MODEL_FILE}'.")
     st.stop() 
@@ -64,34 +60,26 @@ except Exception as e:
     st.stop()
 # --- End of Model Loading ---
 
-
 st.title('Prediction of worsening kidney function in renal vein thrombosis')
 st.markdown("---")
-st.write("This application predicts the outcome (e.g.,Prediction of worsening kidney function in renal vein thrombosis.")
+st.write("This application predicts the outcome (e.g., Prediction of worsening kidney function in renal vein thrombosis).")
 
 st.sidebar.header("Patient Input Data")
 st.sidebar.markdown("Adjust the parameters below to get a prediction.")
 
-# Dictionary to hold all input data
 input_features = {}
 
-# --- Define the order of features for prediction (Must match training order) ---
 FINAL_FEATURE_ORDER = [
     'Nephrotic Syndrome', 'C-Reactive Protein', 'Serum Albumin', 
     'Diabetes Mellitus', 'Serum Creatinine at Admission', 
     'Thrombus Clearance (Follow-up Duplex)', 'Treatment Modality', 
     'D-dimer', 'Sofa Score'
 ]
-for col in data_df.columns:
-        if data_df[col].dtype == 'object':
-             # محاولة تحويل الأعمدة التي يفترض أن تكون رقمية ولكن تم قراءتها كـ object
-            try:
-                data_df[col] = pd.to_numeric(data_df[col], errors='coerce')
-            except:
-                pass # تجاهل إذا لم تكن قابلة للتحويل (مثل الأعمدة الثنائية)
-# Helper function to get median for default value
+
+# Helper function to get median safely
 def get_median(feature_name):
-    return data_df[feature_name].median()
+    val = data_df[feature_name].median()
+    return 0.0 if pd.isna(val) else float(val)
 
 # --- Input Widgets for 9 Features ---
 
@@ -136,21 +124,16 @@ input_features['Diabetes Mellitus'] = st.sidebar.checkbox("6. Diabetes Mellitus 
 # 7. Nephrotic Syndrome (Binary)
 input_features['Nephrotic Syndrome'] = st.sidebar.checkbox("7. Nephrotic Syndrome (NS)", False)
 
-# =========================================================================
-# 8. Thrombus Clearance (Follow-up Duplex) - NEW IMPLEMENTATION (0 or 1)
-# =========================================================================
+# 8. Thrombus Clearance (Follow-up Duplex)
 clearance_options = {'Yes: Partial or complete clearance': 1, 'No: no thrombus clearance': 0}
 selected_clearance = st.sidebar.radio(
     "8. Thrombus Clearance (Follow-up Duplex)",
     options=list(clearance_options.keys()),
-    index=0 # Default to Yes (1)
+    index=0
 )
 input_features['Thrombus Clearance (Follow-up Duplex)'] = clearance_options[selected_clearance]
 
-
-# =========================================================================
-# 9. Treatment Modality - NEW IMPLEMENTATION (1 or 2)
-# =========================================================================
+# 9. Treatment Modality
 treatment_options_map = {
     '1: Anticoagulation alone': 1,
     '2: Mechanical thrombectomy plus anticoagulation': 2
@@ -158,48 +141,34 @@ treatment_options_map = {
 selected_treatment = st.sidebar.radio(
     "9. Treatment Modality",
     options=list(treatment_options_map.keys()),
-    index=0 # Default to 1: Anticoagulation alone
+    index=0
 )
 input_features['Treatment Modality'] = treatment_options_map[selected_treatment]
 
-
 st.markdown("---")
+
 # --- Prediction Logic ---
-
-# بناء المصفوفة بنفس الترتيب الذي تم تدريب النموذج عليه
-input_list = [
-    input_features[feature] for feature in FINAL_FEATURE_ORDER
-]
-
-# تحويل القيم المنطقية (True/False) إلى 1/0
+input_list = [input_features[feature] for feature in FINAL_FEATURE_ORDER]
 final_input_array_list = [
     (1 if item else 0) if isinstance(item, bool) else item 
     for item in input_list
 ]
 
-input_array = np.array([final_input_array_list])
-
-# Ensure the array is 2D for prediction
-input_array = input_array.reshape(1, -1)
+input_array = np.array([final_input_array_list]).reshape(1, -1)
 
 if st.sidebar.button('Predict RVT Outcome'):
     try:
-        # Perform prediction
         prediction = model.predict(input_array)[0]
         prediction_proba = model.predict_proba(input_array)[0]
         
-        # تفسير النتائج (نفترض أن 1 هو النتيجة الإيجابية/المرغوبة)
-        result_label = "Probability of worsning kidney function"
-        non_result_label = "Probability of no worsning kidney function"
-        
+        result_label = "Probability of worsening kidney function"
+        non_result_label = "Probability of no worsening kidney function"
         result = result_label if prediction == 1 else non_result_label
         
-        # عادةً، العمود [1] يمثل احتمالية الفئة 1
         positive_proba = prediction_proba[1] * 100 
         negative_proba = prediction_proba[0] * 100
 
         st.markdown("## Prediction Result")
-        
         if prediction == 1:
             st.success(f"**Prediction: {result}**")
             st.balloons()
@@ -219,71 +188,43 @@ if st.sidebar.button('Predict RVT Outcome'):
 
     except Exception as e:
         st.error(f"An error occurred during prediction: {e}")
-        st.info("Please ensure the input data order and model training features match exactly.")
 
-# Displaying inputs for verification
+# Upload Section for Batch Prediction
 st.sidebar.markdown("---")
 st.sidebar.caption("Input Array Order (Must match model training):")
 st.sidebar.code(FINAL_FEATURE_ORDER)
 
-
-@st.cache_resource
-def load_model():
-    return joblib.load('Naive Bayes Model.pkl')
-model_file_csv=load_model()
-uploaded_file=st.file_uploader("upload csv file ",type=["csv"])
+uploaded_file = st.file_uploader("Upload CSV File for Batch Prediction", type=["csv"])
 
 if uploaded_file is not None:
-    data_file=pd.read_csv(uploaded_file)
-    REQUIRED_FEATURES_CODES_csv = ['NS', 'CRP', 'S.Albumin', 'DM', 'Creat.before', 'Duplex2', 'Treatment', 'D.dimer', 'Sofa.score']
-    
-    # التأكد من وجود الأعمدة المطلوبة
-    data_file = data_file[REQUIRED_FEATURES_CODES]
+    try:
+        data_file = pd.read_csv(uploaded_file)
+        data_file = data_file[REQUIRED_FEATURES_CODES]
+        data_file = data_file.rename(columns=RENAME_MAP)
+        
+        for col in data_file.columns:
+            data_file[col] = pd.to_numeric(data_file[col], errors='coerce')
+        
+        data_file = data_file.fillna(data_file.median(numeric_only=True))
 
-    # 3. إعادة تسمية الأعمدة
-    RENAME_MAP = {
-        'NS': 'Nephrotic Syndrome',
-        'CRP': 'C-Reactive Protein',
-        'S.Albumin': 'Serum Albumin',
-        'DM': 'Diabetes Mellitus',
-        'Creat.before': 'Serum Creatinine at Admission',
-        'Duplex2': 'Thrombus Clearance (Follow-up Duplex)',
-        'Treatment': 'Treatment Modality',
-        'D.dimer': 'D-dimer',
-        'Sofa.score': 'Sofa Score'
-    }
-    data_file = data_file.rename(columns=RENAME_MAP)
-    
-    # تحويل الأعمدة الرقمية وملء القيم المفقودة
-    for col in data_file.columns:
-        if data_file[col].dtype == 'object':
-            try:
-                data_file[col] = pd.to_numeric(data_file[col], errors='coerce')
-            except:
-                pass
-    
-    data_file = data_file.fillna(data_file.median(numeric_only=True))
-
-    st.write("show the top data in file")
-    st.dataframe(data_file.head())
-    
-    # ملء القيم المفقودة (إذا وجدت) بالوسيط لضمان عمل min/max/median
-
-    if st.button("Predict"):
-        try:
-            file_prediction=model_file_csv.predict(data_file)
-            data_file['prediction']=file_prediction
-            st.write("Prediction proccess is done successfully")
+        st.write("Uploaded File Preview:")
+        st.dataframe(data_file.head())
+        
+        if st.button("Predict Batch"):
+            # إعادة ترتيب الأعمدة لتطابق الترتيب النهائي للنموذج
+            batch_input = data_file[FINAL_FEATURE_ORDER]
+            file_prediction = model.predict(batch_input)
+            data_file['prediction'] = file_prediction
+            
+            st.success("Batch Prediction Completed Successfully!")
             st.dataframe(data_file.head())
-           
-        except Exception as e:
-            st.error("error happened")
-            st.info("file must be csv and columns are the same as in app")
-        csv_result=data_file.to_csv(index=False).encode('utf-8')
-
-        st.download_button(
-        label="Download CSV File",
-        data=csv_result,
-        file_name="prdictions_result.csv",
-        mime="text/csv"
+            
+            csv_result = data_file.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download CSV Predictions",
+                data=csv_result,
+                file_name="predictions_result.csv",
+                mime="text/csv"
             )
+    except Exception as e:
+        st.error(f"Error processing CSV file: {e}")
